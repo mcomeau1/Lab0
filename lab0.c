@@ -14,13 +14,11 @@
 //
 // Credits:      Software code based upon sample code provided with Microchip 16-bit 28-pin 
 //               Development board.
-//
-// ******************************************************************************************* //
 
+// ******************************************************************************************* //
 // Include file for PIC24FJ64GA002 microcontroller. This include file defines
 // MACROS for special function registers (SFR) and control bits within those
 // registers.
-
 #include "p24fj64ga002.h"
 #include <stdio.h>
 
@@ -33,7 +31,6 @@
 //
 // These settings are appropriate for debugging the PIC microcontroller. If you need to 
 // program the PIC for standalone operation, change the COE_ON option to COE_OFF.
-
 _CONFIG1( JTAGEN_OFF & GCP_OFF & GWRP_OFF & 	
           BKBUG_ON & COE_ON & ICS_PGx1 & 
           FWDTEN_OFF & WINDIS_OFF & FWPSA_PR128 & WDTPS_PS32768 )
@@ -44,23 +41,33 @@ _CONFIG1( JTAGEN_OFF & GCP_OFF & GWRP_OFF &
 // Make sure "Configuration Bits set in code." option is checked in MPLAB. 
 // This option can be set by selecting "Configuration Bits..." under the Configure
 // menu in MPLAB.
-
 _CONFIG2( IESO_OFF & SOSCSEL_SOSC & WUTSEL_LEG & FNOSC_PRIPLL & FCKSM_CSDCMD & OSCIOFNC_OFF &
           IOL1WAY_OFF & I2C1SEL_PRI & POSCMOD_XT )
 
 // ******************************************************************************************* //
+// Define constants to be used in this program.
+
 // Defines to simply UART's baud rate generator (BRG) regiser
 // given the osicllator freqeuncy and PLLMODE.
-
 #define XTFREQ          7372800         	  // On-board Crystal frequency
 #define PLLMODE         4               	  // On-chip PLL setting (Fosc)
 #define FCY             (XTFREQ*PLLMODE)/2    // Instruction Cycle Frequency (Fosc/2)
 
-#define BAUDRATE         115200       
+#define BAUDRATE        115200       
 #define BRGVAL          ((FCY/BAUDRATE)/16)-1 
 
-// ******************************************************************************************* //
+// Defines a delay for software debouncing
+#define DEBOUNCE_DELAY  1000
 
+// ******************************************************************************************* //
+// Type definition used in main for a switch statement
+typedef enum stateTypeEnum {
+    WaitForPress,
+    WaitForRelease,
+    ToggleBlinkSpeed
+} stateType;
+
+// ******************************************************************************************* //
 // Global variables can be accessed by both the main application code and the interrupt 
 // service routines. Descriptions should be provided to clearly indicate what the variable
 // is used for. Well chosen variables names are also benficial.
@@ -71,11 +78,19 @@ _CONFIG2( IESO_OFF & SOSCSEL_SOSC & WUTSEL_LEG & FNOSC_PRIPLL & FCKSM_CSDCMD & O
 int ledToToggle = 4;
 
 // ******************************************************************************************* //
-
 int main(void)
 {
+        // Variable used to track the state the program is currently in, where default -> wait
+        // for user input or switch press, ToggleBlinkSpeed -> increases the speed at which the
+        // LED blinks, WaitForRelease -> change the speed that the LED blinks back to normal when
+        // the button is release.
+        stateType state = WaitForPress;
+
 	// Varaible for character recived by UART.
 	int receivedChar;
+
+        // Varaible used for looping.
+        int i = 0;
 
 	//RPINR18 is a regsiter for selectable input mapping (see Table 10-2) for 
 	// for UART1. U1RX is 8 bit value used to specifiy connection to which
@@ -181,26 +196,44 @@ int main(void)
 	// the program should run as long as the device is powered on. 
 	while(1)
 	{
-		// **TODO** Modified the main loop of the software application such that 
-		// whenever the SW1 is continuously pressed, the currently selected LED 
+		// Whenever SW1 is continuously pressed, the currently selected LED
 		// will blink twice as fast. When SW1 is released the LEDs will blink at 
 		// the initially defined rate.
+                switch (state) {
+                    case WaitForPress:
+                        if (PORTBbits.RB5 == 0) {
+                            for (i = 0; i < DEBOUNCE_DELAY; i++);
+                            state = ToggleBlinkSpeed;
+                        }
+                        break;
+                    case ToggleBlinkSpeed:
+                        PR1 = 7200;
+                        TMR1 = 0;
+                        state = WaitForRelease;
+                        break;
+                    case WaitForRelease:
+                        if (PORTBbits.RB5 == 1) {
+                            PR1 = 14400;
+                            TMR1 = 0;
+                            state = WaitForPress;
+                        }
+                        break;
+                }
 
+                // Use the UART RX interrupt flag to wait until we recieve a character.
+                if(IFS0bits.U1RXIF == 1) {
 
-		// Use the UART RX interrupt flag to wait until we recieve a character.
-		if(IFS0bits.U1RXIF == 1) {	
+                        // U1RXREG stores the last character received by the UART. Read this
+                        // value into a local variable before processing.
+                        receivedChar = U1RXREG;
 
-			// U1RXREG stores the last character received by the UART. Read this 
-			// value into a local variable before processing.
-			receivedChar = U1RXREG;
+                        // Echo the entered character so the user knows what they typed.
+                        printf("%c\n\r", receivedChar);
 
-			// Echo the entered character so the user knows what they typed.
-			printf("%c\n\r", receivedChar);
-
-			// Check to see if the character value is between '4' and '7'. Be sure sure
-			// use single quotation mark as the character '4' is not the same as the 
-			// number 4.
-			if( receivedChar <= '7' && receivedChar >= '4' ) {
+                        // Check to see if the character value is between '4' and '7'. Be sure sure
+                        // use single quotation mark as the character '4' is not the same as the
+                        // number 4.
+                        if( receivedChar <= '7' && receivedChar >= '4' ) {
                                 // Due to a bug in the original code if LED was off
                                 // when ledToToggle was change then it would remain
                                 // off because the next XOR would change a different
@@ -210,27 +243,27 @@ int main(void)
                                 // be off I will set them all to off prior to changing ledToToggle
                                 LATB = 0xF000;
 
-				// Assign ledToToggle to the number corresponding to the number 
-				// entered. We can do this by subtracting the value for 
-				// the character '0'.
-				ledToToggle = receivedChar - '0';
+                                // Assign ledToToggle to the number corresponding to the number
+                                // entered. We can do this by subtracting the value for
+                                // the character '0'.
+                                ledToToggle = receivedChar - '0';
 
-				// Print a confirmation message.
-				printf("Toggling LED%d\n\r", ledToToggle);
-			}
-			else {
-				// Display error message.
-				printf("Invalid LED Selection!\n\r");
-			}
+                                // Print a confirmation message.
+                                printf("Toggling LED%d\n\r", ledToToggle);
+                        }
+                        else {
+                                // Display error message.
+                                printf("Invalid LED Selection!\n\r");
+                        }
 
-			// Clear the UART RX interrupt flag to we can detect the reception
-			// of another character.
-			IFS0bits.U1RXIF = 0;	
+                        // Clear the UART RX interrupt flag to we can detect the reception
+                        // of another character.
+                        IFS0bits.U1RXIF = 0;
 
-			// Re-print the message requesting the user to select a LED to toggle.
-			printf("Select LED to Toggle (4-7): ");
-		}
-	}
+                        // Re-print the message requesting the user to select a LED to toggle.
+                        printf("Select LED to Toggle (4-7): ");
+                }
+        }
 
 	return 0;
 }
