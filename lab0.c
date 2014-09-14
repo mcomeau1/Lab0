@@ -90,7 +90,7 @@ int main(void)
 	// Use LATB to write value to PORTB. This enables a Read-Modify-Write 
 	// behavior used in the interrupt later. Set the current output to
 	// 0 .
-	LATB = 0;
+	LATB = 0xF000;
 
 	// TRISB controls direction for all PORTB pins, where 0 -> output, 1 -> input.
 	// Configure RB15, RB14, RB13, and RB12 as outputs.
@@ -201,6 +201,15 @@ int main(void)
 			// use single quotation mark as the character '4' is not the same as the 
 			// number 4.
 			if( receivedChar <= '7' && receivedChar >= '4' ) {
+                                // Due to a bug in the original code if LED was off
+                                // when ledToToggle was change then it would remain
+                                // off because the next XOR would change a different
+                                // bit leaving the original off. To fix that I'm
+                                // decided to set all LED to on prior to changeing ledToToggle.
+                                // Or in the case of the modified code where they should
+                                // be off I will set them all to off prior to changing ledToToggle
+                                LATB = 0xF000;
+
 				// Assign ledToToggle to the number corresponding to the number 
 				// entered. We can do this by subtracting the value for 
 				// the character '0'.
@@ -244,7 +253,7 @@ void _ISR _T1Interrupt(void)
 	IFS0bits.T1IF = 0;		
 	
 	// Toggle the LED Specified by the User.
-	LATB ^= ((0x1000)<<(7-ledToToggle));
+        LATB ^= ((0x1000)<<(7-ledToToggle));
 }
 
 // ******************************************************************************************* //
